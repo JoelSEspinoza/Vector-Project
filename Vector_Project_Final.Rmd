@@ -1,0 +1,244 @@
+---
+title: "Vector_Project_Final"
+author: "Joel Espinoza"
+date: "7/22/2019"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+#load packages
+library(dada2)
+library(ShortRead)
+library(Biostrings)
+library(phyloseq)
+library(ggplot2)
+```
+Load Vector Data
+```{r}
+path <- "C:\\Users\\Joel.Espinoza\\Downloads\\Vector_Data\\ITS2_Final"
+```
+Parse the forward and reverse reads
+```{r}
+Fwdrds <- sort(list.files(path, pattern = ".unmapped.1.fastq.gz", full.names = TRUE))
+Revrds <- sort(list.files(path, pattern = ".unmapped.2.fastq.gz", full.names = TRUE))
+```
+Here are the forward and reverse primers for ITS2
+```{r}
+FWDprm <- "GCTCGTGGATCGATGAAGAC" #primer length = 20
+REVprm <- "TGCTTAAATTTAGGGGGTGTAGTCAC" #primer length =26
+```
+Primer check
+```{r}
+allOrients <- function(primer) {
+  #Create all oientations of the input sequence
+  require(Biostrings)
+  dna <- DNAString(primer) #Biostrings works w/ DNAString objects rather than character vectors
+  orients <- c(Forward = dna, Complement = complement(dna), Reverse = reverse(dna),
+               RevComp = reverseComplement(dna))
+  return(sapply(orients, toString)) #convert back to character vector
+}
+FWD.orients <- allOrients(FWDprm)
+REV.orients <- allOrients(REVprm)
+#check work
+FWD.orients
+REV.orients
+```
+This next step is technically an optional step, but I will include it anyway, it removes reads with N values in the primer sequence
+```{r}
+Fwdrds.filtN <- file.path(path, "filtN", basename(Fwdrds)) # Put N-filtered files in filtN/ subdirectory
+Revrds.filtN <- file.path(path, "filtN", basename(Revrds))
+filterAndTrim(Fwdrds, Fwdrds.filtN, Revrds, Revrds.filtN, maxN = 0)
+```
+Here, we are also ensuring that these primers were processed the same way. This will check for any anomalies in the orientation of the primers
+```{r}
+primerHits <- function(primer,fn) {
+  # Counts number of reads in which the primer is found
+  nhits <- vcountPattern(primer, sread(readFastq(fn)), fixed = FALSE)
+  return(sum(nhits >0))
+}
+rbind(FWD.ForwardReads = sapply(FWD.orients, primerHits, fn = Fwdrds.filtN[[1]]),
+      FWD.ReverseReads = sapply(FWD.orients, primerHits, fn = Revrds.filtN[[1]]),
+      Rev.ForwardReads = sapply(REV.orients, primerHits, fn = Fwdrds.filtN[[1]]),
+      Rev.ReverseReads = sapply(REV.orients, primerHits, fn = Revrds.filtN[[1]]))
+```
+Comments:
+```{r}
+cutadapt <- "C:\\Users\\Joel.Espinoza\\AppData\\Local\\Programs\\Python\\Python37-32\\Scripts\\cutadapt"
+system2(cutadapt, args = "--version")
+```
+^^^This output means it worked
+Actual primer removal
+```{r}
+path.cut <- file.path(path, "cutadapt")
+if(!dir.exists(path.cut)) dir.create(path.cut)
+Fwdrds.cut <- file.path(path.cut, basename(Fwdrds))
+Revrds.cut <- file.path(path.cut, basename(Revrds))
+
+Fwd.RC <- dada2:::rc(FWDprm)
+Rev.RC <- dada2:::rc(REVprm)
+# Trim FWD and the reverse-complement of REV off of R1 (forward reads)
+R1.flags <- paste("-g", FWDprm, "-a", Rev.RC) 
+# Trim REV and the reverse-complement of FWD off of R2 (reverse reads)
+R2.flags <- paste("-G", REVprm, "-A", Fwd.RC)
+#The above code may run into some problems as it technically couldn't find the forward forward primers and forward reverse primers
+# Run Cutadapt
+for(i in seq_along(Fwdrds)) {
+  system2(cutadapt, args = c(R1.flags, R2.flags, "-n", 2, # -n 2 required to remove FWD and REV from reads
+                             "-o", Fwdrds.cut[i], "--minimum-length 1", "-p", Revrds.cut[i], # output files
+                             Fwdrds.filtN[i], Revrds.filtN[i])) # input files
+}
+```
+Comments: I wonder if these new samples used the same primers or not
+```{r}
+rbind(FWD.ForwardReads = sapply(FWD.orients, primerHits, fn = Fwdrds.cut[[1]]), 
+    FWD.ReverseReads = sapply(FWD.orients, primerHits, fn = Revrds.cut[[1]]), 
+    REV.ForwardReads = sapply(REV.orients, primerHits, fn = Fwdrds.cut[[1]]), 
+    REV.ReverseReads = sapply(REV.orients, primerHits, fn = Revrds.cut[[1]]))
+```
+Comments:
+```{r}
+# Forward and reverse fastq filenames have the format:
+cutFs <- sort(list.files(path.cut, pattern = ".1.fastq.gz", full.names = TRUE))
+cutRs <- sort(list.files(path.cut, pattern = ".2.fastq.gz", full.names = TRUE))
+
+# Extract sample names, assuming filenames have format:
+get.sample.name <- function(fname) strsplit(basename(fname), "u")[[1]][1]
+sample.names <- unname(sapply(cutFs, get.sample.name))
+sample.names.simple <- paste0("Sample ",1:12)
+sample.names <- sample.names.simple
+head(sample.names)
+sample.names
+```
+Comments:
+The first bit of Data analysis starts now: Inspect read quality profiles
+```{r}
+#the forward reads
+print(plotQualityProfile(cutFs[1:12]))
+#the reverse reads
+plotQualityProfile(cutRs[1:12])
+plotQualityProfile(cutFs[1:2])
+plotQualityProfile(cutRs[1:2])
+```
+Comments:These seem to be of very poor quality
+Here I create a space where the new filtered forward and reverse reads will be stored, assigning them a name, and saving as fastq.gz files
+```{r}
+filtFs <- file.path(path, "filtered", paste0(sample.names, "_F_filt.fastq.gz"))
+filtRs <- file.path(path, "filtered", paste0(sample.names, "_R_filt.fastq.gz"))
+#next, now that we have created a file space the data we're about to create/edit, we are changing how the names are stored in R to names we are familiar with
+names(filtFs) <- sample.names
+names(filtRs) <- sample.names
+##check results
+filtFs
+filtRs
+```
+Now apply filtering parameters by limiting the number of expected errors allowed in a read. 
+```{r}
+out <- filterAndTrim(cutFs, filtFs, cutRs, filtRs, maxN = 0, maxEE = c(2, 2), 
+    truncQ = 2, minLen = 50, rm.phix = TRUE, compress = TRUE, multithread = FALSE)
+head(out)
+out
+```
+Comments:
+Now we look at error rates to see if they are similar or differ from what is expected.
+```{r}
+errF <- learnErrors(filtFs, multithread = TRUE)
+errR <- learnErrors(filtRs, multithread = TRUE)
+plotErrors(errF, nominalQ = TRUE)
+plotErrors(errR, nominalQ = TRUE)
+```
+Comments:
+Now we dereplicate the identical reads
+```{r}
+derepFs <- derepFastq(filtFs, verbose = TRUE)
+derepRs <- derepFastq(filtRs, verbose = TRUE)
+# Name the derep-class objects by the sample names
+names(derepFs) <- sample.names
+names(derepRs) <- sample.names
+```
+Now we appy the core sample inference algorithm to the dereplicated data
+```{r}
+dadaFs <- dada(derepFs, err = errF, multithread = TRUE)
+dadaRs <- dada(derepRs, err = errR, multithread = TRUE)
+```
+Comments: as to what this step is doing
+So now we merge the reads. We attempt to merge the paired reads using the "justConcatenate" function which will add a sequence of 10 "N"s between the forward and reverse reads.
+```{r}
+mergers <- mergePairs(dadaFs, derepFs, dadaRs, derepRs, verbose = TRUE, justConcatenate = TRUE)
+```
+Comments: 
+Now we can construct an amplicon sequence variant table to start our search for chimeras.
+```{r}
+seqtab <- makeSequenceTable(mergers)
+dim(seqtab)
+###length filtering step
+seqtab2 <- seqtab[,nchar(colnames(seqtab)) %in% 315:505]
+dim(seqtab2)
+```
+Remove Chimeras
+```{r}
+seqtab.nochim <- removeBimeraDenovo(seqtab2, method = "consensus", multithread = TRUE, verbose = TRUE)
+rownames(seqtab.nochim) <- paste0("Sample ",1:12)
+```
+Inspect distribution of sequence lengths:
+```{r}
+table(nchar(getSequences(seqtab.nochim))) # we see these vary greatly in length (sweetspot is around 464)
+sum(seqtab.nochim)/sum(seqtab)
+```
+Comments: 
+Now we track the reads through the pipeline to verify that everything worked as expected and the reduction of reads over time
+```{r}
+getNrds <-function(x) sum(getUniques(x))
+track <- cbind(out, sapply(dadaFs, getNrds), sapply(dadaRs, getNrds), sapply(mergers, getNrds), rowSums(seqtab.nochim))
+colnames(track) <- c("input", "filtered", "denoisedF", "denoisedR", "merged", "nochim")
+rownames(track) <- paste0("Sample ",1:12)
+print(track)
+##See if you can add a column for read length filtering step
+```
+load database
+```{r}
+Vector.ref <- "C:\\Users\\Joel.Espinoza\\Documents\\ITS2.DB.fasta"
+```
+
+```{r}
+Specs <- assignTaxonomy(seqtab.nochim, Vector.ref)
+Specs_wboot <- assignTaxonomy(seqtab.nochim, Vector.ref, 
+                        outputBootstraps = TRUE) # This function prints the scale of     nucleotides in a given read that are aligned to our database
+head(Specs)
+#Here I make adjustments by nullifying row names, and adding sample names to the data for clarity
+Specs.print <-Specs
+rownames(Specs.print) <- NULL #removes sequence rownames for display
+head(Specs.print)
+```
+POST TAXONOMIC ASSIGNMENT
+Apparently we can use the phyloseq package to create an OTU so, so I'll see if I can apply this to our data
+```{r}
+#redefine sample.names here for better visualization
+ps <- phyloseq(otu_table(seqtab.nochim, taxa_are_rows=FALSE), tax_table(Specs), rownames <- sample.names)
+ps
+options(max.print =1000000) # set maximum to allow for all rows to be displayed
+print(otu_table(ps))
+```
+It organizes the sequence table to be better for interpretatio where the number on the table indicates the number of reads from that sample that correspond with a given reference sequence. Also there can be a way to shorten the name of the referece sequences, but I haven't looked too deeply into it yet
+The above worked, we now have an OTU that separates the outputs by sample.
+
+Here I plan on making a histogram of the values in the OTU table. I am determining whether or not I can use the otu table or if I can use the values that are going into it.
+```{r}
+plot_bar(ps) # displays number of reads per each sample with stacked abundance orders
+# this allows us to visualize the proportion of reads from each sample that correspond to a single OTU, which can be helpful when identifying groups and seqs we can get rid of
+plot_bar(ps, fill = "Genus") # allows us to visualize by species, so it becomes evident that samples 1, 2, and 7 are likely to be Anopholes Darlingi, but interestingly the majority of the reads from samples3-6 do not appear to match anything. I'm curious as to wear the other species are since we know they exist
+plot_bar(ps, fill = "Species")
+plot_bar(ps, "Genus", fill = "Species", facet_grid=~Sample) # This allows us to visualize how many of each species the reads match too in comparison to the other species for each sample, which so far tells us the same information, with the exception that we now might be able to discern that the hits for Anopheles gambiae came from sample 5.
+#We should also note the dark regions at the top of each bar, indicating a large number of short length reads that we would presumably want to get rid of, also note, they are highest among the NA bars, indicating that they are likely representing nothing. 
+```
+More plot making:
+```{r}
+library(plyr)
+ps.ord <- ordinate(ps, "NMDS", "bray")
+Ord.plot = plot_ordination(ps, ps.ord, type="taxa", color="Species", title="Taxa")
+print(Ord.plot)
+```
