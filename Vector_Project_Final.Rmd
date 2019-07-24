@@ -68,10 +68,10 @@ rbind(FWD.ForwardReads = sapply(FWD.orients, primerHits, fn = Fwdrds.filtN[[1]])
 ```
 Comments:
 ```{r}
-cutadapt <- "C:\\Users\\Joel.Espinoza\\AppData\\Local\\Programs\\Python\\Python37-32\\Scripts\\cutadapt"
+cutadapt <- "C:\\Users\\PATH to cutadapt"
 system2(cutadapt, args = "--version")
 ```
-^^^This output means it worked
+^^^Output will indicate if it worked
 Actual primer removal
 ```{r}
 path.cut <- file.path(path, "cutadapt")
@@ -93,7 +93,7 @@ for(i in seq_along(Fwdrds)) {
                              Fwdrds.filtN[i], Revrds.filtN[i])) # input files
 }
 ```
-Comments: I wonder if these new samples used the same primers or not
+Comments:
 ```{r}
 rbind(FWD.ForwardReads = sapply(FWD.orients, primerHits, fn = Fwdrds.cut[[1]]), 
     FWD.ReverseReads = sapply(FWD.orients, primerHits, fn = Revrds.cut[[1]]), 
@@ -124,7 +124,7 @@ plotQualityProfile(cutRs[1:12])
 plotQualityProfile(cutFs[1:2])
 plotQualityProfile(cutRs[1:2])
 ```
-Comments:These seem to be of very poor quality
+Comments:
 Here I create a space where the new filtered forward and reverse reads will be stored, assigning them a name, and saving as fastq.gz files
 ```{r}
 filtFs <- file.path(path, "filtered", paste0(sample.names, "_F_filt.fastq.gz"))
@@ -165,7 +165,7 @@ Now we appy the core sample inference algorithm to the dereplicated data
 dadaFs <- dada(derepFs, err = errF, multithread = TRUE)
 dadaRs <- dada(derepRs, err = errR, multithread = TRUE)
 ```
-Comments: as to what this step is doing
+Comments: 
 So now we merge the reads. We attempt to merge the paired reads using the "justConcatenate" function which will add a sequence of 10 "N"s between the forward and reverse reads.
 ```{r}
 mergers <- mergePairs(dadaFs, derepFs, dadaRs, derepRs, verbose = TRUE, justConcatenate = TRUE)
@@ -201,7 +201,7 @@ print(track)
 ```
 load database
 ```{r}
-Vector.ref <- "C:\\Users\\Joel.Espinoza\\Documents\\ITS2.DB.fasta"
+Vector.ref <- "C:\\Users\\PATH TO DADA2 FORMATTED DATA BASE"
 ```
 
 ```{r}
@@ -230,12 +230,12 @@ Here I plan on making a histogram of the values in the OTU table. I am determini
 ```{r}
 plot_bar(ps) # displays number of reads per each sample with stacked abundance orders
 # this allows us to visualize the proportion of reads from each sample that correspond to a single OTU, which can be helpful when identifying groups and seqs we can get rid of
-plot_bar(ps, fill = "Genus") # allows us to visualize by species, so it becomes evident that samples 1, 2, and 7 are likely to be Anopholes Darlingi, but interestingly the majority of the reads from samples3-6 do not appear to match anything. I'm curious as to wear the other species are since we know they exist
+plot_bar(ps, fill = "Genus") # allows us to visualize by species
 plot_bar(ps, fill = "Species")
-plot_bar(ps, "Genus", fill = "Species", facet_grid=~Sample) # This allows us to visualize how many of each species the reads match too in comparison to the other species for each sample, which so far tells us the same information, with the exception that we now might be able to discern that the hits for Anopheles gambiae came from sample 5.
+plot_bar(ps, "Genus", fill = "Species", facet_grid=~Sample) # This allows us to visualize how many of each species the reads match too in comparison to the other species for each sample
 #We should also note the dark regions at the top of each bar, indicating a large number of short length reads that we would presumably want to get rid of, also note, they are highest among the NA bars, indicating that they are likely representing nothing. 
 ```
-More plot making:
+More plot making: DO NOT RUN BELOW
 ```{r}
 library(plyr)
 ps.ord <- ordinate(ps, "NMDS", "bray")
